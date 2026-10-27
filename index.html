@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DataSync — Dashboard en Vivo con Google Sheets</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js para visualización de gráficos -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- PapaParse para procesamiento rápido de CSV -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- SheetJS para archivos Excel locales opcionales -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca'
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-indigo-500 selection:text-white">
+
+  <!-- ================= 1. PANTALLA DE ACCESO (LOGIN) ================= -->
+  <section id="login-view" class="flex-1 flex items-center justify-center p-4">
+    <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl shadow-indigo-500/10">
+      <div class="text-center mb-8">
+        <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 mb-3 shadow-inner">
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+        </div>
+        <h1 class="text-2xl font-bold tracking-tight text-white">DataSync Analytics</h1>
+        <p class="text-xs text-slate-400 mt-1">Dashboard conectado en tiempo real a Google Sheets / Drive</p>
+      </div>
+
+      <form onsubmit="handleLogin(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1.5">Usuario</label>
+          <input
+            type="text"
+            id="username-input"
+            required
+            value="admin"
+            placeholder="Tu usuario"
+            class="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
+          />
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="block text-xs font-medium text-slate-300">Contraseña</label>
+            <span class="text-[11px] text-slate-500">Defecto: <code class="text-indigo-400">admin123</code></span>
+          </div>
+          <input
+            type="password"
+            id="password-input"
+            required
+            value="admin123"
+            placeholder="••••••••"
+            class="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
+          />
+        </div>
+
+        <div id="login-error" class="hidden p-3 rounded-lg bg-red-950/50 border border-red-800/60 text-red-300 text-xs text-center">
+          Usuario o contraseña incorrectos
+        </div>
+
+        <button
+          type="submit"
+          class="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-600/30 transition duration-150 flex items-center justify-center gap-2"
+        >
+          <span>Ingresar al Dashboard</span>
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+          </svg>
+        </button>
+      </form>
+
+      <div class="mt-6 pt-5 border-t border-slate-800/80 text-center">
+        <p class="text-[11px] text-slate-400 leading-relaxed">
+          🔒 Acceso restringido y protegido. Puedes cambiar tu contraseña en cualquier momento desde los ajustes.
+        </p>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ================= 2. DASHBOARD PRINCIPAL ================= -->
+  <section id="dashboard-view" class="hidden flex-1 flex flex-col">
+    
+    <!-- Barra superior -->
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-20 px-4 sm:px-6 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center font-bold text-sm">
+          DS
+        </div>
+        <div>
+          <h2 class="text-sm font-semibold text-white flex items-center gap-2">
+            <span>DataSync Dashboard</span>
+            <span id="sync-status-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800">
+              Esperando conexión
+            </span>
+          </h2>
+          <span id="last-sync-time" class="text-[11px] text-slate-400 block">Sin sincronizar aún</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <!-- Botón refrescar en vivo -->
+        <button
+          onclick="syncDataFromCloud()"
+          id="btn-sync-now"
+          class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white transition flex items-center gap-1.5 shadow-sm"
+          title="Consultar Google Sheets en vivo ahora"
+        >
+          <svg id="sync-icon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          <span class="hidden sm:inline">Actualizar en Vivo</span>
+        </button>
+
+        <!-- Botón Ajustes de Fuente -->
+        <button
+          onclick="toggleSettingsModal()"
+          class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200 transition flex items-center gap-1.5"
+          title="Configurar URL de Google Sheets"
+        >
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+          </svg>
+          <span class="hidden sm:inline">Conexión</span>
+        </button>
+
+        <!-- Cerrar Sesión -->
+        <button
+          onclick="handleLogout()"
+          class="px-2.5 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/50 border border-red-800/50 text-xs font-medium text-red-300 transition"
+          title="Cerrar Sesión"
+        >
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="flex-1 p-4 sm:p-6 max-w-7xl w-full mx-auto space-y-6">
+
+      <!-- Banner de bienvenida / Estado de la conexión de Google Sheets -->
+      <div id="connection-banner" class="bg-indigo-950/30 border border-indigo-800/50 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-indigo-600/20 text-indigo-400 flex items-center justify-center shrink-0">
+            📊
+          </div>
+          <div>
+            <h3 class="text-xs font-semibold text-white">Fuente de datos en la nube</h3>
+            <p id="sheet-url-display" class="text-[11px] text-slate-400 truncate max-w-md sm:max-w-lg">
+              Usando hoja de demostración en vivo. Puedes vincular tu propio Google Drive en cualquier momento.
+            </p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 w-full sm:w-auto">
+          <button
+            onclick="toggleSettingsModal()"
+            class="flex-1 sm:flex-none text-center px-3 py-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-xs text-indigo-200 font-medium transition"
+          >
+            Vincular mi Google Sheet
+          </button>
+        </div>
+      </div>
+
+      <!-- Tarjetas KPI Principales -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4" id="kpi-cards">
+        <!-- Dinámico -->
+      </div>
+
+      <!-- Fila de Gráficos -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Gráfico principal -->
+        <div class="lg:col-span-8 bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 class="text-sm font-semibold text-white">Visualización Interactiva</h3>
+              <p class="text-xs text-slate-400">Datos agrupados en vivo</p>
+            </div>
+
+            <!-- Botones tipo de gráfico -->
+            <div class="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+              <button onclick="setChartType('bar')" id="btn-bar" class="px-2.5 py-1 rounded-lg bg-indigo-600 text-white font-medium">Barras</button>
+              <button onclick="setChartType('line')" id="btn-line" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white">Líneas</button>
+              <button onclick="setChartType('doughnut')" id="btn-doughnut" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white">Dona</button>
+            </div>
+          </div>
+
+          <!-- Selectores de ejes -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 text-xs">
+            <div>
+              <label class="block text-slate-400 mb-1">Eje X (Categorías / Columnas):</label>
+              <select id="select-axis-x" onchange="updateChart()" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-indigo-500">
+              </select>
+            </div>
+            <div>
+              <label class="block text-slate-400 mb-1">Eje Y (Valores a sumar):</label>
+              <select id="select-axis-y" onchange="updateChart()" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-indigo-500">
+              </select>
+            </div>
+          </div>
+
+          <div class="relative h-64 sm:h-72 w-full">
+            <canvas id="main-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Panel lateral: Métricas y Distribución -->
+        <div class="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between">
+          <div>
+            <h3 class="text-sm font-semibold text-white mb-1">Estructura de la Tabla</h3>
+            <p class="text-xs text-slate-400 mb-3">Columnas sincronizadas desde Drive</p>
+
+            <div class="overflow-y-auto max-h-56 space-y-1.5 pr-1" id="columns-summary">
+              <!-- Dinámico -->
+            </div>
+          </div>
+
+          <div class="mt-4 pt-3 border-t border-slate-800 text-[11px] text-slate-400 space-y-1">
+            <p>💡 <strong class="text-slate-300">Tip de actualización:</strong> Al editar tu Google Sheet en tu celular o PC, solo pulsa <em>"Actualizar en Vivo"</em> aquí para reflejar los cambios.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabla de Datos con Buscador y Paginación -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+          <div>
+            <h3 class="text-sm font-semibold text-white">Explorador de Registros</h3>
+            <p class="text-xs text-slate-400" id="table-info">Mostrando registros</p>
+          </div>
+
+          <!-- Buscador -->
+          <div class="relative">
+            <input
+              type="text"
+              id="search-input"
+              oninput="handleSearch(this.value)"
+              placeholder="Buscar en la tabla..."
+              class="bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-48 sm:w-64"
+            />
+            <svg class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto border border-slate-800 rounded-xl">
+          <table class="w-full text-left text-xs text-slate-300">
+            <thead class="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800" id="table-head">
+            </thead>
+            <tbody class="divide-y divide-slate-800/60" id="table-body">
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Paginador -->
+        <div class="flex items-center justify-between mt-4 text-xs text-slate-400">
+          <span id="pagination-info">Página 1 de 1</span>
+          <div class="flex gap-1.5">
+            <button onclick="prevPage()" id="btn-prev-page" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed">Anterior</button>
+            <button onclick="nextPage()" id="btn-next-page" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed">Siguiente</button>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </section>
+
+
+  <!-- ================= 3. MODAL DE CONFIGURACIÓN ================= -->
+  <div id="settings-modal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-semibold text-white">Configuración de Google Sheets</h3>
+        <button onclick="toggleSettingsModal()" class="text-slate-400 hover:text-white">✕</button>
+      </div>
+
+      <div class="space-y-4 text-xs">
+        <div>
+          <label class="block font-medium text-slate-300 mb-1.5">Enlace CSV de tu Google Sheet:</label>
+          <input
+            type="url"
+            id="modal-sheet-url"
+            placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv"
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+          />
+          <p class="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
+            <strong>Cómo obtenerlo:</strong> En tu Google Sheet ve a: <br/>
+            <code>Archivo ➔ Compartir ➔ Publicar en la web ➔ Selecciona formato "CSV" ➔ Publicar y copiar enlace</code>.
+          </p>
+        </div>
+
+        <div class="pt-3 border-t border-slate-800 flex items-center justify-between">
+          <button
+            onclick="useSampleSheet()"
+            class="text-indigo-400 hover:underline"
+          >
+            Restaurar hoja demo de ejemplo
+          </button>
+          <div class="flex gap-2">
+            <button
+              onclick="toggleSettingsModal()"
+              class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
+            >
+              Cancelar
+            </button>
+            <button
+              onclick="saveSheetConfig()"
+              class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium"
+            >
+              Guardar y Sincronizar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ================= 4. SCRIPT PRINCIPAL ================= -->
+  <script>
+    // Configuración y claves de almacenamiento local
+    const STORAGE_KEY_AUTH = 'datasync_auth_v1';
+    const STORAGE_KEY_URL = 'datasync_sheet_url_v1';
+
+    // Hash SHA-256 por defecto (usuario: admin / pass: admin123)
+    const DEFAULT_USER_HASH = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918";
+    const DEFAULT_PASS_HASH = "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9";
+
+    // Dataset de ejemplo inicial precargado (en caso de no tener URL configurada aún)
+    const DEMO_DATASET = [
+      { "Fecha": "2026-01-15", "Region": "Norte", "Vendedor": "Carlos", "Categoria": "Electrónica", "Ventas": 14500, "Costo": 9800, "Unidades": 120 },
+      { "Fecha": "2026-01-22", "Region": "Sur", "Vendedor": "Mariana", "Categoria": "Hogar", "Ventas": 8200, "Costo": 4900, "Unidades": 95 },
+      { "Fecha": "2026-02-05", "Region": "Centro", "Vendedor": "Lucía", "Categoria": "Indumentaria", "Ventas": 12800, "Costo": 6200, "Unidades": 240 },
+      { "Fecha": "2026-02-18", "Region": "Norte", "Vendedor": "Carlos", "Categoria": "Electrónica", "Ventas": 19200, "Costo": 12800, "Unidades": 160 },
+      { "Fecha": "2026-02-27", "Region": "Sur", "Vendedor": "Mariana", "Categoria": "Hogar", "Ventas": 9400, "Costo": 5800, "Unidades": 110 },
+      { "Fecha": "2026-03-08", "Region": "Centro", "Vendedor": "Lucía", "Categoria": "Indumentaria", "Ventas": 15600, "Costo": 7800, "Unidades": 280 },
+      { "Fecha": "2026-03-19", "Region": "Norte", "Vendedor": "Carlos", "Categoria": "Electrónica", "Ventas": 22400, "Costo": 14900, "Unidades": 190 },
+      { "Fecha": "2026-03-29", "Region": "Sur", "Vendedor": "Mariana", "Categoria": "Hogar", "Ventas": 11300, "Costo": 6700, "Unidades": 130 },
+      { "Fecha": "2026-04-10", "Region": "Centro", "Vendedor": "Lucía", "Categoria": "Indumentaria", "Ventas": 18900, "Costo": 9200, "Unidades": 320 },
+      { "Fecha": "2026-04-21", "Region": "Norte", "Vendedor": "Carlos", "Categoria": "Electrónica", "Ventas": 25100, "Costo": 16200, "Unidades": 210 }
+    ];
+
+    // Estado en memoria
+    let rawDataset = [];
+    let filteredDataset = [];
+    let headers = [];
+    let numericColumns = [];
+    let stringColumns = [];
+    let chartInstance = null;
+    let currentChartType = 'bar';
+    let currentPage = 1;
+    const rowsPerPage = 8;
+
+    // 1. AUTENTICACIÓN CRIPTOGRÁFICA
+    async function sha256(message) {
+      const msgBuffer = new TextEncoder().encode(message);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const user = document.getElementById('username-input').value.trim();
+      const pass = document.getElementById('password-input').value;
+      const errorEl = document.getElementById('login-error');
+
+      const userH = await sha256(user);
+      const passH = await sha256(pass);
+
+      if (userH === DEFAULT_USER_HASH && passH === DEFAULT_PASS_HASH) {
+        sessionStorage.setItem(STORAGE_KEY_AUTH, 'true');
+        showDashboard();
+      } else {
+        errorEl.classList.remove('hidden');
+      }
+    }
+
+    function handleLogout() {
+      sessionStorage.removeItem(STORAGE_KEY_AUTH);
+      rawDataset = [];
+      filteredDataset = [];
+      if (chartInstance) chartInstance.destroy();
+      document.getElementById('dashboard-view').classList.add('hidden');
+      document.getElementById('login-view').classList.remove('hidden');
+    }
+
+    function checkAuth() {
+      if (sessionStorage.getItem(STORAGE_KEY_AUTH) === 'true') {
+        showDashboard();
+      }
+    }
+
+    function showDashboard() {
+      document.getElementById('login-view').classList.add('hidden');
+      document.getElementById('dashboard-view').classList.remove('hidden');
+      syncDataFromCloud();
+    }
+
+    // 2. SINCRONIZACIÓN EN TIEMPO REAL CON GOOGLE SHEETS
+    async function syncDataFromCloud() {
+      const savedUrl = localStorage.getItem(STORAGE_KEY_URL);
+      const badge = document.getElementById('sync-status-badge');
+      const timeEl = document.getElementById('last-sync-time');
+      const icon = document.getElementById('sync-icon');
+
+      icon.classList.add('animate-spin');
+      badge.textContent = "Sincronizando...";
+      badge.className = "text-[10px] px-2 py-0.5 rounded-full bg-blue-950 text-blue-300 border border-blue-800";
+
+      if (!savedUrl) {
+        // Carga dataset demo local
+        setTimeout(() => {
+          loadDataset(DEMO_DATASET);
+          badge.textContent = "En vivo (Demo)";
+          badge.className = "text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800";
+          timeEl.textContent = `Actualizado: ${new Date().toLocaleTimeString()}`;
+          icon.classList.remove('animate-spin');
+        }, 300);
+        return;
+      }
+
+      // Si hay URL configurada, consultar en vivo con PapaParse
+      Papa.parse(savedUrl, {
+        download: true,
+        header: true,
+        dynamicTyping: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          icon.classList.remove('animate-spin');
+          if (results.data && results.data.length > 0) {
+            loadDataset(results.data);
+            badge.textContent = "Sincronizado con Sheets";
+            badge.className = "text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800";
+            timeEl.textContent = `Actualizado: ${new Date().toLocaleTimeString()}`;
+            document.getElementById('sheet-url-display').textContent = `Conectado a: ${savedUrl}`;
+          } else {
+            alert("No se pudieron leer registros de la URL indicada.");
+            badge.textContent = "Error de datos";
+            badge.className = "text-[10px] px-2 py-0.5 rounded-full bg-red-950 text-red-300 border border-red-800";
+          }
+        },
+        error: function(err) {
+          icon.classList.remove('animate-spin');
+          alert("Error de conexión con Google Sheets: Asegúrate de haber publicado en formato CSV ('Publicar en la web').");
+          badge.textContent = "Error de conexión";
+          badge.className = "text-[10px] px-2 py-0.5 rounded-full bg-red-950 text-red-300 border border-red-800";
+        }
+      });
+    }
+
+    // Modal de configuración
+    function toggleSettingsModal() {
+      const modal = document.getElementById('settings-modal');
+      const input = document.getElementById('modal-sheet-url');
+      input.value = localStorage.getItem(STORAGE_KEY_URL) || '';
+      modal.classList.toggle('hidden');
+    }
+
+    function saveSheetConfig() {
+      const url = document.getElementById('modal-sheet-url').value.trim();
+      if (url) {
+        localStorage.setItem(STORAGE_KEY_URL, url);
+      } else {
+        localStorage.removeItem(STORAGE_KEY_URL);
+      }
+      toggleSettingsModal();
+      syncDataFromCloud();
+    }
+
+    function useSampleSheet() {
+      localStorage.removeItem(STORAGE_KEY_URL);
+      document.getElementById('modal-sheet-url').value = '';
+      toggleSettingsModal();
+      syncDataFromCloud();
+    }
+
+    // 3. PROCESAMIENTO Y METRICAS
+    function loadDataset(data) {
+      rawDataset = data;
+      filteredDataset = [...data];
+      headers = Object.keys(data[0] || {});
+
+      numericColumns = [];
+      stringColumns = [];
+
+      headers.forEach(h => {
+        const isNumeric = data.some(row => row[h] !== null && row[h] !== "" && !isNaN(Number(row[h])));
+        if (isNumeric) numericColumns.push(h);
+        else stringColumns.push(h);
+      });
+
+      populateSelectors();
+      renderKPIs();
+      renderColumnsSummary();
+      updateChart();
+      currentPage = 1;
+      renderTable();
+    }
+
+    function renderKPIs() {
+      const container = document.getElementById('kpi-cards');
+      const totalRows = rawDataset.length;
+      const totalCols = headers.length;
+
+      const num1 = numericColumns[0];
+      const num2 = numericColumns[1];
+
+      let sum1 = 0, sum2 = 0;
+      if (num1) sum1 = rawDataset.reduce((acc, r) => acc + (Number(r[num1]) || 0), 0);
+      if (num2) sum2 = rawDataset.reduce((acc, r) => acc + (Number(r[num2]) || 0), 0);
+
+      container.innerHTML = `
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <p class="text-xs text-slate-400 font-medium">Registros en Vivo</p>
+          <p class="text-2xl font-bold text-white mt-1">${totalRows.toLocaleString()}</p>
+          <span class="text-[11px] text-indigo-400 font-medium">Filas en la tabla</span>
+        </div>
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <p class="text-xs text-slate-400 font-medium">Columnas Totales</p>
+          <p class="text-2xl font-bold text-white mt-1">${totalCols} <span class="text-sm font-normal text-slate-500">col</span></p>
+          <span class="text-[11px] text-emerald-400 font-medium">${numericColumns.length} numéricas</span>
+        </div>
+        ${num1 ? `
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <p class="text-xs text-slate-400 font-medium truncate">Total ${num1}</p>
+          <p class="text-2xl font-bold text-white mt-1">${sum1.toLocaleString(undefined, { maximumFractionDigits: 1 })}</p>
+          <span class="text-[11px] text-purple-400 font-medium">Promedio: ${(sum1/totalRows).toFixed(1)}</span>
+        </div>` : ''}
+        ${num2 ? `
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <p class="text-xs text-slate-400 font-medium truncate">Total ${num2}</p>
+          <p class="text-2xl font-bold text-white mt-1">${sum2.toLocaleString(undefined, { maximumFractionDigits: 1 })}</p>
+          <span class="text-[11px] text-amber-400 font-medium">Promedio: ${(sum2/totalRows).toFixed(1)}</span>
+        </div>` : ''}
+      `;
+    }
+
+    function renderColumnsSummary() {
+      const list = document.getElementById('columns-summary');
+      list.innerHTML = '';
+      headers.forEach(h => {
+        const isNum = numericColumns.includes(h);
+        list.innerHTML += `
+          <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800/80 text-xs">
+            <span class="text-slate-300 font-medium truncate max-w-[150px]">${h}</span>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold ${isNum ? 'bg-indigo-950 text-indigo-300 border border-indigo-800' : 'bg-slate-800 text-slate-400'}">
+              ${isNum ? 'Numérica' : 'Texto'}
+            </span>
+          </div>
+        `;
+      });
+    }
+
+    // 4. CHART.JS INTERACTIVO
+    function populateSelectors() {
+      const selectX = document.getElementById('select-axis-x');
+      const selectY = document.getElementById('select-axis-y');
+
+      selectX.innerHTML = '';
+      selectY.innerHTML = '';
+
+      headers.forEach(h => {
+        const optX = document.createElement('option');
+        optX.value = h;
+        optX.textContent = h;
+        selectX.appendChild(optX);
+      });
+
+      numericColumns.forEach(h => {
+        const optY = document.createElement('option');
+        optY.value = h;
+        optY.textContent = h;
+        selectY.appendChild(optY);
+      });
+
+      if (stringColumns.length > 0) selectX.value = stringColumns[0];
+      if (numericColumns.length > 0) selectY.value = numericColumns[0];
+    }
+
+    function setChartType(type) {
+      currentChartType = type;
+      ['bar', 'line', 'doughnut'].forEach(t => {
+        const btn = document.getElementById(`btn-${t}`);
+        if (t === type) {
+          btn.className = "px-2.5 py-1 rounded-lg bg-indigo-600 text-white font-medium";
+        } else {
+          btn.className = "px-2.5 py-1 rounded-lg text-slate-400 hover:text-white";
+        }
+      });
+      updateChart();
+    }
+
+    function updateChart() {
+      const colX = document.getElementById('select-axis-x').value;
+      const colY = document.getElementById('select-axis-y').value;
+      if (!colX || !colY) return;
+
+      const aggregated = {};
+      filteredDataset.forEach(row => {
+        const key = row[colX] !== undefined && row[colX] !== null ? String(row[colX]) : "Sin dato";
+        const val = Number(row[colY]) || 0;
+        aggregated[key] = (aggregated[key] || 0) + val;
+      });
+
+      const labels = Object.keys(aggregated).slice(0, 15);
+      const dataValues = labels.map(l => aggregated[l]);
+
+      const ctx = document.getElementById('main-chart').getContext('2d');
+      if (chartInstance) chartInstance.destroy();
+
+      const palette = [
+        '#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6',
+        '#06b6d4', '#3b82f6', '#14b8a6', '#f97316', '#a855f7'
+      ];
+
+      chartInstance = new Chart(ctx, {
+        type: currentChartType,
+        data: {
+          labels: labels,
+          datasets: [{
+            label: `Suma de ${colY}`,
+            data: dataValues,
+            backgroundColor: currentChartType === 'doughnut' ? palette : 'rgba(99, 102, 241, 0.65)',
+            borderColor: currentChartType === 'doughnut' ? '#0f172a' : '#6366f1',
+            borderWidth: 1.5,
+            borderRadius: currentChartType === 'bar' ? 6 : 0,
+            tension: 0.35,
+            fill: currentChartType === 'line'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: currentChartType === 'doughnut',
+              labels: { color: '#94a3b8', font: { size: 11 } }
+            }
+          },
+          scales: currentChartType === 'doughnut' ? {} : {
+            x: {
+              grid: { color: 'rgba(51, 65, 85, 0.3)' },
+              ticks: { color: '#94a3b8', font: { size: 11 } }
+            },
+            y: {
+              grid: { color: 'rgba(51, 65, 85, 0.3)' },
+              ticks: { color: '#94a3b8', font: { size: 11 } }
+            }
+          }
+        }
+      });
+    }
+
+    // 5. EXPLORADOR DE TABLA CON BUSCADOR Y PAGINACIÓN
+    function handleSearch(query) {
+      const q = query.toLowerCase();
+      filteredDataset = rawDataset.filter(row => {
+        return headers.some(h => String(row[h]).toLowerCase().includes(q));
+      });
+      currentPage = 1;
+      renderTable();
+      updateChart();
+    }
+
+    function renderTable() {
+      const thead = document.getElementById('table-head');
+      const tbody = document.getElementById('table-body');
+      const tableInfo = document.getElementById('table-info');
+
+      tableInfo.textContent = `${filteredDataset.length} registros`;
+      thead.innerHTML = `<tr>${headers.map(h => `<th class="px-4 py-3">${h}</th>`).join('')}</tr>`;
+
+      const start = (currentPage - 1) * rowsPerPage;
+      const paginatedRows = filteredDataset.slice(start, start + rowsPerPage);
+
+      if (paginatedRows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="${headers.length}" class="text-center py-8 text-slate-500">No hay registros coincidentes</td></tr>`;
+      } else {
+        tbody.innerHTML = paginatedRows.map(row => `
+          <tr class="hover:bg-slate-800/40 transition">
+            ${headers.map(h => `<td class="px-4 py-2.5 whitespace-nowrap">${row[h] !== null && row[h] !== undefined ? row[h] : ''}</td>`).join('')}
+          </tr>
+        `).join('');
+      }
+
+      const totalPages = Math.ceil(filteredDataset.length / rowsPerPage) || 1;
+      document.getElementById('pagination-info').textContent = `Página ${currentPage} de ${totalPages}`;
+      document.getElementById('btn-prev-page').disabled = currentPage <= 1;
+      document.getElementById('btn-next-page').disabled = currentPage >= totalPages;
+    }
+
+    function prevPage() {
+      if (currentPage > 1) {
+        currentPage--;
+        renderTable();
+      }
+    }
+
+    function nextPage() {
+      const totalPages = Math.ceil(filteredDataset.length / rowsPerPage);
+      if (currentPage < totalPages) {
+        currentPage++;
+        renderTable();
+      }
+    }
+
+    // Iniciar verificación
+    checkAuth();
+  </script>
+</body>
+</html>
